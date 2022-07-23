@@ -1,0 +1,117 @@
+path:
+  color_info: assets/distinct_colors.pkl
+  dataset_base_local: data/
+
+misc:
+  use_gpu: True # If GPU should be used or not
+  seed: 42
+
+optimizer: 
+  name: Adam # SGD or Adam
+
+scheduler:
+  name: ExponentialLR
+  exp_gamma: 0.98
+
+Adam:
+  learning_rate: 0.0005 # Initial learning rate
+  weight_decay: 0.0 # Weight decay weight
+  momentum: 0.8 #Momentum
+
+SGD:
+  learning_rate: 1.0e-2
+  weight_decay: 1.0e-4
+  momentum: 0.9
+  nesterov: true
+
+train:
+  num_workers: 7 # Number of workers used for the data loader
+  max_epoch: 100 # Max number of training epochs
+  n_verbose: 10  # verbose 10 times per epoch
+  metric: iou
+  iter_size: 2 # Number of iterration to accumulate the gradients before optimizer step (can be used if the gpu memory is too low)
+  batch_size: 4 # Training batch size
+  grad_clip: 1.0
+
+val:
+  num_workers: 7 # Number of workers used for the data loader
+  batch_size: 1 # Validation batch size
+
+test:
+  batch_size: 1
+  num_workers: 7 # Num of workers to use for the test data set
+
+data_aug:
+  augment_noise: 0.01
+  augment_shift_range: 0.25
+  augment_scale_min: 0.995
+  augment_scale_max: 1.005
+  rot_aug: 0.5 #[0.5 * pi]
+ 
+data:
+  speed_threshold: 0.5  # m/s
+  max_speed: 20 # m/s
+  ground_slack: 0.3 # we follow SLIM to set this value
+  remove_ground: True
+
+
+cluster:
+  cluster_metric: euclidean # Distance metric used to compute the cluster assignments 0 = Euclidean
+  min_p_cluster: 15 # Min number of points in a cluster 
+  min_samples_dbscan: 5 # Min number of points in the neighborhood DBSCAN
+  eps_dbscan: 0.4 # Eps value in DBSCAN for the Euclidean distance
+  voxel_size: 0.15  # we have to voxel-downsample the point clouds to speed up the clustering step
+
+pillar_encoder:
+  depth: 3
+  num_input_features: 9 #[x,y,z,t,dx,dy,dz,du,dv]
+  num_filters: 32
+
+unet:
+  start_filts: 32
+  in_channels: 32
+  depth: 5
+  merge_mode: concat
+
+pose_estimation:
+  n_kpts: 1024
+  add_slack: True
+  sinkhorn_iter: 3
+  feats_dim: 64
+  icp_threshold: 0.15
+  icp_max_iter: 50
+  seq_pose: skip
+
+stpn:
+  feat_dim: 32
+  
+mos:
+  label_ignore: -1
+
+fb:
+  label_ignore: -1
+
+tpointnet:
+  n_iterations: 1
+  min_points: 10 
+  icp_threshold: 0.25
+
+loss:
+  w_pose_l1_loss: 1.0
+  w_perm_loss: 0.005
+  w_mos_bce_loss: 1.0
+  w_mos_lovasz_loss: 1.0
+  w_fb_bce_loss: 1.0
+  w_fb_lovasz_loss: 1.0
+  w_offset_norm_loss: 0.5
+  w_offset_dir_loss: 0.5
+  w_obj_l1_loss: 1.0
+  w_obj_pose_loss: 1.0
+  w_obj_loss: 0.3
+  w_obj_rot_loss: 50
+  w_obj_trans_loss: 1.0
+  obj_gamma: 0.7
+
+model:
+  ego_icp: False
+  tpointnet_icp: False

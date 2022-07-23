@@ -1,0 +1,17 @@
+labels_mos:
+  0: static
+  1: dynamic
+labels_fb:
+  0: background
+  1: foreground
+labels_3:
+  0: background
+  1: static_foreground
+  2: dynamic_foreground
+labels_sem_seg:
+  0: 'vehicle'
+  1: 'pedestrian'
+  2: 'background'
+  3: 'cyclist'
+binary_counts: [1673, 63]
+semantic_counts: [198, 14, 1525, 0.52]

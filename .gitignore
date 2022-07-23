@@ -1,0 +1,8 @@
+checkpoints/
+training_logs/
+venv_pcaccumulation/
+snapshot/
+results/
+metrics/
+__pycache__/
+.ipynb_checkpoints/

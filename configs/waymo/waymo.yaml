@@ -1,0 +1,27 @@
+misc:
+  exp_name: waymo
+  mode: test # Mode to run the network in [train, val, test]
+  pretrain: ''
+
+voxel_generator:
+  range: [-36, -36, -2, 36, 36, 6]
+  voxel_size: [0.25, 0.25, 8] 
+  n_sweeps: 5
+  crop_range: [32, -2, 6]
+
+data:
+  dataset: waymo  # [waymo, kitti]
+  label_map: 'configs/waymo/mapping.yaml'
+  n_frames: 5
+  interval: 1
+  freq: 10.0 # sampled as 20 Hz
+  ground_height: 0.04 # 
+  max_speed: 30 # m/s
+
+pose_estimation:
+  icp_threshold: 0.1
+
+tpointnet:
+  n_iterations: 2
+  min_points: 50
+  icp_threshold: 0.15

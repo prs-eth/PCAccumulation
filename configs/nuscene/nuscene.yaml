@@ -1,0 +1,28 @@
+misc:
+  exp_name: nuscene
+  mode: test # Mode to run the network in [train, val, test]
+  pretrain: ''
+
+voxel_generator:
+  range: [-36, -36, -5, 36, 36, 3]
+  voxel_size: [0.25, 0.25, 8] 
+  n_sweeps: 11
+  crop_range: [32, -5, 3]
+
+data:
+  dataset: nuscene  # [waymo, kitti]
+  label_map: 'configs/nuscene/mapping.yaml'
+  n_frames: 11
+  interval: 1
+  freq: 20.0 # sampled as 20 Hz
+  ground_height: -1.84 # 
+  radius: 1.0  # we also remove points with [1m, 1m] rectangle, we follow mmdetection framework 
+  max_speed: 10 # m/s
+
+pose_estimation:
+  icp_threshold: 0.2
+
+tpointnet:
+  n_iterations: 2
+  min_points: 50
+  icp_threshold: 0.25
