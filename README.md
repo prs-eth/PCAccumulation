@@ -1,14 +1,12 @@
 ## 
 This repository represents the official implementation of the paper:
 
-### Dynamic 3D Scene Analysis by Point Cloud Accumulation
+### [Dynamic 3D Scene Analysis by Point Cloud Accumulation](http://arxiv.org/abs/2207.12394)
 
 [Shengyu Huang](https://shengyuh.github.io), [Zan Gojcic](https://zgojcic.github.io/), [Jiahui Huang](https://cg.cs.tsinghua.edu.cn/people/~huangjh/), [Andreas Wieser](https://gseg.igp.ethz.ch/people/group-head/prof-dr--andreas-wieser.html), [Konrad Schindler](https://prs.igp.ethz.ch/group/people/person-detail.schindler.html)\
 | [ETH Zurich](https://igp.ethz.ch/) | [NVIDIA Toronto AI Lab](https://nv-tlabs.github.io) | [BRCist](https://www.bnrist.tsinghua.edu.cn/) |
 
 <image src="assets/teaser.jpg"/>
-
-### Paper is coming soon! 
 
 ### Contact
 If you have any questions, please let me know: 
