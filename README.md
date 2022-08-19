@@ -1,5 +1,5 @@
 ## 
-This repository represents the official implementation of the paper:
+This repository represents the official implementation of the ECCV2022 paper:
 
 ### [Dynamic 3D Scene Analysis by Point Cloud Accumulation](http://arxiv.org/abs/2207.12394)
 
