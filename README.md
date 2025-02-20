@@ -38,9 +38,9 @@ cd PCAccumulation
 #### Datasets and pretrained models
 We provide preprocessed Waymo and nuScenes datasets. The preprocessed dataset and checkpoint can be downloaded by running:
 ```shell
-wget --no-check-certificate --show-progress https://share.phys.ethz.ch/~gsg/PCAccumulation/data.zip
+wget --no-check-certificate --show-progress https://share.phys.ethz.ch/~gseg/PCAccumulation/data.zip
 unzip data.zip
-wget --no-check-certificate --show-progress https://share.phys.ethz.ch/~gsg/PCAccumulation/checkpoints.zip
+wget --no-check-certificate --show-progress https://share.phys.ethz.ch/~gseg/PCAccumulation/checkpoints.zip
 unzip checkpoints.zip
 ```
 ****
