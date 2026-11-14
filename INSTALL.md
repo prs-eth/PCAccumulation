@@ -13,6 +13,7 @@ gcc 15 default + gcc-13, system nvcc 12.4, Python 3.10.
 bash setup_env.sh                       # no sudo needed
 source venv_pcaccumulation/bin/activate
 python dummy-test.py                    # sanity check without the dataset
+# then follow RUNNING.md
 ```
 
 ## Final versions
@@ -92,37 +93,10 @@ python dummy-test.py                    # sanity check without the dataset
    `configs/waymo/waymo.yaml` and call `load_state_dict(..., strict=True)` with
    `checkpoints/waymo.pth`. All keys should match.
 
-## Testing without the dataset (`synthetic_benchmark.py`)
+## Next: running it
 
-`data.zip` is not needed to check that the network runs or to measure its speed.
-`synthetic_benchmark.py` generates synthetic 5-sweep scenes: ground, building facades, poles,
-trees, parked and moving cars, and a moving ego vehicle. It runs them through the **real**
-preprocessing (crop, ground removal, 4D voxelisation, `collate_fn`) and the pretrained model in
-inference (`test`) mode:
-
-```bash
-python synthetic_benchmark.py                          # latency per stage + GPU memory
-python synthetic_benchmark.py --points-per-sweep 60000 --batch-size 2 --iters 50
-python synthetic_benchmark.py --deterministic --save-ref ref.pt   # store reference outputs
-python synthetic_benchmark.py --deterministic --compare ref.pt    # check an optimized model
-python synthetic_benchmark.py --dump-npz synth_data/   # write dataset-format .npz samples
-```
-
-Baseline on an RTX 4060 Laptop (fp32, batch 1, ~54k points / ~9.4k 4D pillars after
-preprocessing): **~190 ms** forward, ~660 MB peak GPU memory. On the synthetic scenes the
-pretrained Waymo model's ego-motion translation error is ~0.05–0.09 m, which shows that the
-weights and pipeline actually work, not only that they run.
-
-Notes:
-- Without `--deterministic`, fp32 outputs vary slightly between runs (cuDNN algorithm choice,
-  scatter atomics). Occasionally a point changes instance cluster, which also changes the shape of
-  `sub_rec_est`/`inst_labels_adjusted`. With `--deterministic`, repeated runs agree to ~1e-4
-  relative. Use that as the noise floor when comparing optimized variants.
-- `--fp16` currently fails: `models/motionnet.py:224` (`full_mos[fb_mask] = mos`) mixes
-  float32/float16. Mixed precision needs fixes like this in the model code.
-- Synthetic scenes are only for smoke tests, latency and regression checks. Accuracy numbers
-  (IoU etc.) still need real data. A few real validation scenes are enough for that, not the
-  whole archive.
+Once installed, see [RUNNING.md](RUNNING.md) for how to test, benchmark and compare the model
+without the dataset.
 
 ## Code changes needed for newer torch/numpy
 
