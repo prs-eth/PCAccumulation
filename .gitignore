@@ -11,4 +11,3 @@ __pycache__/
 venv_*/
 *.zip
 data/
-CLAUDE.md
