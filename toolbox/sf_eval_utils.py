@@ -193,8 +193,8 @@ class SF_Evaluator():
 
         self.flow_error_list.extend(epe_per_point.cpu().numpy().astype(np.float16))
         self.relative_errro_list.extend(relative_error.cpu().numpy().astype(np.float16))
-        self.fb_label_list.extend(fb_label.cpu().numpy().astype(np.bool))
-        self.sd_label_list.extend(sd_label.cpu().numpy().astype(np.bool))
+        self.fb_label_list.extend(fb_label.cpu().numpy().astype(bool))
+        self.sd_label_list.extend(sd_label.cpu().numpy().astype(bool))
         self.time_indice_list.extend(time_indice.cpu().numpy().astype(np.int8))
         
     @staticmethod

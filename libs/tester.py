@@ -49,7 +49,7 @@ class SegTrainer(BaseTrainer):
                 for idx in tqdm(range(num_iter)): # loop through this epoch
                     
                     # forward pass
-                    input_dict = c_loader_iter.next()
+                    input_dict = next(c_loader_iter)
                     for key, value in input_dict.items():
                         if(not isinstance(value, list)):
                             input_dict[key] = value.to(self.device)
@@ -78,8 +78,8 @@ class SegTrainer(BaseTrainer):
                     
                     sel = time_indice > 0
                     time_indice_list.extend(time_indice[sel].cpu().numpy().astype(np.int8))
-                    fb_label_list.extend(fb_labels[sel].cpu().numpy().astype(np.bool))
-                    sd_label_list.extend(sd_labels[sel].cpu().numpy().astype(np.bool))
+                    fb_label_list.extend(fb_labels[sel].cpu().numpy().astype(bool))
+                    sd_label_list.extend(sd_labels[sel].cpu().numpy().astype(bool))
                     relative_error_list.extend(relative_err[sel].cpu().numpy().astype(np.float16))
                     flow_error_list.extend(epe_per_point[sel].cpu().numpy().astype(np.float16))
                     

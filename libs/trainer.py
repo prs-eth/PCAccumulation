@@ -211,7 +211,7 @@ class BaseTrainer(object):
         for c_iter in tqdm(range(num_iter)): # loop through this epoch   
             ##################################
             try:
-                inputs = c_loader_iter.next()
+                inputs = next(c_loader_iter)
                 ##################################
                 # forward pass
                 # with torch.autograd.detect_anomaly():

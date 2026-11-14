@@ -48,8 +48,8 @@ class ClusterEvaluation(nn.Module):
         
         for threshold in self.iou_threshold:
             for sem_idx in range(self.num_classes):
-                tp = np.asarray(self.tpsins[f'@{threshold}'][sem_idx]).astype(np.float)
-                fp = np.asarray(self.fpsins[f'@{threshold}'][sem_idx]).astype(np.float)
+                tp = np.asarray(self.tpsins[f'@{threshold}'][sem_idx]).astype(float)
+                fp = np.asarray(self.fpsins[f'@{threshold}'][sem_idx]).astype(float)
                 tp = np.sum(tp)
                 fp = np.sum(fp)
                 rec = tp / self.total_gt_inst[sem_idx]

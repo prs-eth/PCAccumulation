@@ -6,3 +6,8 @@ results/
 metrics/
 __pycache__/
 .ipynb_checkpoints/
+# local environment / downloads
+.deps/
+venv_*/
+*.zip
+data/
