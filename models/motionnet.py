@@ -41,6 +41,13 @@ class MotionNet(nn.Module):
         # per-instance motion modelling
         self.reconstructor = AlignNet(cfg)
 
+        # optional stage timer (benchmarks/bench_v0.py); None = no-op
+        self.timer = None
+
+    def _mark(self, stage):
+        if self.timer is not None:
+            self.timer.mark(stage)
+
     
     def get_transformed_grid(self, pose, H, W, x_reso, y_reso, x_min, y_min):
         """Sample a grid for grid_sampling
@@ -176,6 +183,7 @@ class MotionNet(nn.Module):
         # 1. pillar encoder
         input_features = self.pillar_encoder(input_points, point_to_voxel_map, coordinates, pillar_mean, time_indice)  #[M, 32]
         bev = scatter_point_pillar(input_features, coordinates, batch_size, input_shape) #[B, C, t, Ny, Nx]
+        self._mark('pillar_enc')
         
         ###################################################
         # 2. unet backbone
@@ -198,7 +206,9 @@ class MotionNet(nn.Module):
         geometric_feats = self.ego_feats_head(bev_feats) #[B * T, C, Ny, Nx]
         geometric_feats = geometric_feats / torch.norm(geometric_feats, p=2, dim=1, keepdim=True)
         geometric_feats = geometric_feats.view(B, T, -1, Ny, Nx)  
+        self._mark('backbone')
         self.ego_motion_head(geometric_feats, fb_est, occ_map, pts_mean_map, ego_motion_gt, input_points, fb_est_per_point, time_indice, results)
+        self._mark('ego_motion')
 
         ###################################################
         # 5. motion segmentation
@@ -227,6 +237,7 @@ class MotionNet(nn.Module):
         results['mos_est'] = full_mos
         results['offset_est'] = full_offset
         results['rec_est'] = transformed_points.clone()
+        self._mark('motion_seg')
 
         ###################################################
         # 6. TubeNet
@@ -236,6 +247,7 @@ class MotionNet(nn.Module):
             rec_mask = input_dict['fb_labels'][:,0] == 1 
         else:
             self.cluster(transformed_points, full_mos.argmax(1), full_offset, time_indice, results, use_offset = True)
+            self._mark('cluster')
             
             inst_labels = results['inst_labels_est']
             rec_mask = inst_labels!= 0 
@@ -258,5 +270,6 @@ class MotionNet(nn.Module):
                 
             self.reconstructor(reconstructor_input, results)    
             results['rec_est'][rec_mask] = results['sub_rec_est']          
+        self._mark('tubenet')
 
         return results

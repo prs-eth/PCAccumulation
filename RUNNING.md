@@ -1,6 +1,7 @@
-# Running PCAccumulation (no dataset needed)
+# Running PCAccumulation
 
-How to test, benchmark and regression-check the pretrained model on synthetic data.
+How to test, benchmark and regression-check the pretrained model on the selected real frames
+(`data/waymo/test/`, list in `data/waymo/selected_frames.txt`).
 To set up the environment first, see [INSTALL.md](INSTALL.md).
 
 ## 0. Activate the environment
@@ -8,7 +9,7 @@ To set up the environment first, see [INSTALL.md](INSTALL.md).
 Do this once in every new terminal:
 
 ```bash
-cd ~/Desktop/PCAccumulation
+cd ~/Desktop/PCAccumulation-SSC
 source venv_pcaccumulation/bin/activate
 ```
 
@@ -20,67 +21,93 @@ python dummy-test.py
 
 You should see two ✅ lines: the checkpoint loads onto the GPU, and torchsparse works.
 
-## 2. Run the model on synthetic scenes and time it
+## 2. Benchmark the speed (V0 baseline)
 
 ```bash
-python synthetic_benchmark.py
+python benchmarks/bench_v0.py
 ```
 
-This generates synthetic 5-sweep LiDAR scenes: ground, building facades, poles, trees, parked and
-moving cars, and a moving ego vehicle. It runs them through the **real** preprocessing (crop,
-ground removal, 4D voxelisation, `collate_fn`) and the pretrained Waymo model in inference
-(`test`) mode. At the end it prints:
+Runs the original model (`test` mode, batch 1) on every selected frame: 10 warm-up frames, then 3
+timed passes. Frames are read from disk outside the timed region. Each frame is timed per stage,
+with the same stage boundaries the C++ pipeline will use:
 
-- the time per stage (preprocessing, host→GPU copy, model forward, end-to-end)
-- peak GPU memory
-- the model's output tensors and their shapes
-- the ego-motion error against the synthetic ground truth, which should be roughly **0.05–0.09 m**.
-  That shows the weights and pipeline actually work, not only that they run.
+| stage | what V0 does there |
+|---|---|
+| `preprocess` | crop + ground removal (CPU) |
+| `voxelize` | numba 4D voxelisation + collate (CPU) |
+| `h2d` | host → GPU copy |
+| `pillar_enc` | pillar encoder + BEV scatter |
+| `backbone` | UNet + fg/bg head + ego feature head |
+| `ego_motion` | ego-motion head |
+| `motion_seg` | warp + STPN |
+| `cluster` | DBSCAN |
+| `tubenet` | AlignNet (outside the C++ scope, not part of e2e) |
+
+`e2e` is the sum of `preprocess` … `cluster`. Each stage waits for the GPU at its end, so the
+stages add up. `e2e_nosync` is a second run of the same frame without those waits: the real
+throughput.
+
+Output in `benchmarks/results/` (git-ignored):
+- `V0_<device>.csv`: one row per (frame, pass, stage):
+  `variant,device,precision,frame,pass,stage,ms,n_points,n_pillars,n_fg_points`.
+  The C++ `benchmark.cpp` writes the same columns.
+- `V0_<device>_meta.json`: git commit, date, driver, torch/CUDA versions, power mode (Jetson).
+
+At the end it prints the summary table (median ms per stage, e2e, FPS) and the ego-motion error
+against the ground truth (a few cm; if it's much larger, something broke).
+
+`precision` is `tf32` by default: like TensorRT, PyTorch uses TF32 for convolutions on Ampere and
+newer. Use `--no-tf32` for strict fp32.
 
 Useful options:
 
 ```bash
-python synthetic_benchmark.py --iters 50                 # more runs = more stable timing
-python synthetic_benchmark.py --points-per-sweep 60000   # denser scenes
-python synthetic_benchmark.py --batch-size 2             # several scenes at once
-python synthetic_benchmark.py --dump-npz synth_data/     # also save scenes as dataset-format .npz
-python synthetic_benchmark.py --help                     # all options
+python benchmarks/bench_v0.py --frames 20 --passes 1     # quick run
+python benchmarks/bench_v0.py --help                     # all options
 ```
 
-Baseline on an RTX 4060 Laptop (fp32, batch 1, ~54k points / ~9.4k 4D pillars after
-preprocessing): **~160–190 ms** forward, ~660 MB peak GPU memory.
+For stable numbers: laptop plugged in, performance power profile, nothing else using the GPU.
 
-## 3. Before optimizing: save a reference
-
-Do this once, with the original, unmodified model:
+## 3. Compare runs
 
 ```bash
-python synthetic_benchmark.py --deterministic --save-ref ref.pt
+python benchmarks/summarize.py benchmarks/results/*.csv
+python benchmarks/summarize.py benchmarks/results/*.csv --out benchmark_results.csv
 ```
 
-This stores the inputs and outputs of the first batch.
+One column per (device, variant, precision), with the speedup against `V0` (`--baseline` to pick
+another run). The script only needs numpy, so it also runs on the Jetson.
 
-## 4. After each change to the model: compare against the reference
+## 4. Check that outputs didn't change
+
+Save the outputs of the original model once:
 
 ```bash
-python synthetic_benchmark.py --deterministic --compare ref.pt
+python benchmarks/bench_v0.py --deterministic --passes 1 --save-outputs benchmarks/results/V0_outputs
 ```
 
-The comparison reuses the exact same inputs stored in `ref.pt`.
+Per frame, this writes `points.bin` (input after preprocessing), `poses.bin` `[5,4,4]`,
+`mos_label.bin` `[N]` and `inst_label.bin` `[N]`. The format is in `benchmarks/binio.py`
+(int32 dtype code, int32 ndim, int32 dims, then the data); the C++ program writes the same files.
 
-- If it only prints `worst relative float difference` at about **1e-4**, the outputs haven't
-  changed. That is the noise floor of identical runs.
-- Any `DIFF`, `SHAPE` or `MISSING` lines show exactly which outputs your change affected.
+After a change, compare against them:
 
-Always use `--deterministic` for steps 3 and 4. Without it, two identical fp32 runs already
-differ slightly (cuDNN algorithm choice, scatter atomics). Occasionally a point even switches
-instance cluster, which changes the shape of `sub_rec_est`/`inst_labels_adjusted`. For timing
-(step 2), leave it off, since deterministic mode can be slower.
+```bash
+python benchmarks/bench_v0.py --deterministic --passes 1 --compare benchmarks/results/V0_outputs
+```
+
+It prints the maximum pose difference, the % of identical MOS labels and the adjusted Rand index
+of the instance labels. Unchanged code gives identical labels, ARI 1 and pose differences of
+~0.002 cm.
+
+Always use `--deterministic` for these two commands. Without it, two identical fp32 runs already
+differ slightly (cuDNN algorithm choice, scatter atomics), and occasionally a point switches
+instance cluster. For timing (step 2), leave it off.
 
 ## Watching GPU usage
 
 Open a monitor in a second terminal while the benchmark runs
-(e.g. `python synthetic_benchmark.py --iters 200`):
+(e.g. `python benchmarks/bench_v0.py`):
 
 ```bash
 nvidia-smi dmon                 # built in: one line per second (usage %, memory, power, temperature)
@@ -91,15 +118,12 @@ nvitop                          # htop-like, no sudo; install with: pip install 
 
 ## Known limitations
 
-- `--fp16` currently fails: `models/motionnet.py:224` (`full_mos[fb_mask] = mos`) mixes
-  float32/float16. Mixed precision needs fixes like this in the model code.
-- Synthetic scenes are only for smoke tests, latency and regression checks. Accuracy numbers
-  (IoU etc.) still need real data. A few real validation scenes are enough for that, not the
-  whole `data.zip` archive.
+- Mixed precision in PyTorch (`torch.autocast` fp16) fails: `models/motionnet.py`
+  (`full_mos[fb_mask] = mos`) mixes float32/float16. Irrelevant for TensorRT FP16.
 
-## With the real dataset
+## With the full dataset
 
-If you do download the data, the README's commands work unchanged in this environment, e.g.:
+If you do download the full data, the README's commands work unchanged in this environment, e.g.:
 
 ```bash
 python main.py configs/waymo/waymo.yaml 2 1 --misc.mode=val --misc.pretrain=checkpoints/waymo.pth \

@@ -352,29 +352,36 @@ optimization, so the contribution of each one can be shown exactly.
 ## Running the Python reference (details in `RUNNING.md`)
 
 - `python dummy-test.py`: loads `checkpoints/waymo.pth` onto the GPU and builds a torchsparse tensor.
-- `python synthetic_benchmark.py`: synthetic 5-sweep scenes through the real preprocessing (crop,
-  ground removal, numba 4D voxelisation, `collate_fn`) and the pretrained model in `test` mode.
-  Reports per-stage latency, peak GPU memory, output tensors and the ego-motion error against the
-  synthetic ground truth. Useful as a quick smoke/regression test; real frames are the main data.
-- Regression workflow: `--deterministic --save-ref ref.pt` once on the original model, then
-  `--deterministic --compare ref.pt` after each change.
+- `python benchmarks/bench_v0.py`: speed benchmark of the original model on the selected real
+  frames, batch 1, `test` mode. Times each stage of the module table (`preprocess`, `voxelize`,
+  `h2d`, `pillar_enc`, `backbone`, `ego_motion`, `motion_seg`, `cluster`, plus `tubenet` outside
+  the scope) through the optional `MotionNet.timer` hook (no-op when `None`). Writes
+  `benchmarks/results/<variant>_<device>.csv` with columns
+  `variant,device,precision,frame,pass,stage,ms,n_points,n_pillars,n_fg_points`. **The C++
+  `benchmark.cpp` must write the same schema and stage names**, so `benchmarks/summarize.py`
+  (numpy only) compares any runs: median ms per stage, e2e, FPS, speedup vs V0.
+- `e2e` = sum of synced stages `preprocess`..`cluster`; `e2e_nosync` = a second run without
+  per-stage syncs. Benchmark focus is speed; power and memory are not measured.
+- Regression workflow: `--deterministic --passes 1 --save-outputs benchmarks/results/V0_outputs`
+  once on the original model, then `--deterministic --passes 1 --compare <dir>` after each change.
+  Per-frame `.bin` files (format in `benchmarks/binio.py`: int32 dtype code, ndim, dims, data):
+  `points`, `poses [5,4,4]`, `mos_label [N]`, `inst_label [N]`.
 - Always use `--deterministic` for comparisons. Without it, fp32 runs differ slightly from run to
-  run, and occasionally a point changes instance cluster, which changes the shapes of
-  `sub_rec_est`/`inst_labels_adjusted`.
+  run, and occasionally a point changes instance cluster.
 - In `train`/`val` mode the forward pass uses ground-truth labels. Always run in **`test` mode**,
   which is the deployment path.
 
-## Baseline numbers (RTX 4060 Laptop, fp32, batch 1, synthetic 40k pts/sweep)
+## V0 baseline (RTX 4060 Laptop, TF32 convs, batch 1, 273 real frames × 3 passes, 2026-11-15)
 
-- ~54k points / ~9.4k 4D pillars after preprocessing.
-- Model forward: **~160–190 ms**. Preprocessing on the CPU: 5–30 ms. Peak GPU memory: ~660 MB.
-- Ego-motion translation error on synthetic scenes: ~0.05–0.09 m. If it's suddenly much larger,
-  something broke.
-- `--deterministic` noise floor: ~1e-4 relative, labels identical.
-- Synthetic scenes need non-uniform structure along the driving direction (segmented facades,
-  poles, trees). Uniform walls make forward translation unobservable, and the ego-motion error
-  jumps to ~1.5 m.
-- The V0 baseline on the selected real frames is still to be measured (Phase 0 step 2).
+- Inputs after preprocessing (median, min–max): 357k points (26k–608k), 17.9k 4D pillars
+  (3.2k–43k), 81k foreground points sent to STPN (0–348k). Latency scales with these.
+- Median ms per stage: preprocess 6.5, voxelize 8.1, h2d 2.0, pillar_enc 21.5, backbone 36.1,
+  ego_motion 7.4, motion_seg 31.6, cluster 25.9 (tubenet 14.8, outside the scope).
+- **e2e median 143.9 ms, p90 189.7 ms, 6.75 FPS** (min 63 ms, max 375 ms). No-sync e2e is the
+  same (143.5 ms), so per-stage syncs cost almost nothing.
+- Ego-motion translation error vs GT: ~0.03 m. If it's suddenly much larger, something broke.
+- `--deterministic` noise floor: identical labels, pose diff ~0.002 cm.
+- Results: `benchmarks/results/V0_NVIDIA-GeForce-RTX-4060-Laptop-GPU-sm-89.csv` (git-ignored).
 
 ## Known issues / porting notes
 
@@ -393,8 +400,10 @@ optimization, so the contribution of each one can be shown exactly.
 - `libs/trainer.py`, `libs/tester.py`: `c_loader_iter.next()` → `next(c_loader_iter)`.
 - `libs/tester.py`, `toolbox/sf_eval_utils.py`, `toolbox/cluster_eval.py`: `np.bool`/`np.float`
   → builtins (removed in numpy 1.24+).
-- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `synthetic_benchmark.py`,
-  and `.gitignore` entries.
+- `models/motionnet.py`: optional `self.timer` stage hooks (`_mark`), no effect on outputs.
+- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `benchmarks/`
+  (`bench_v0.py`, `summarize.py`, `binio.py`), and `.gitignore` entries.
+- Removed `synthetic_benchmark.py`: the selected real frames replace the synthetic scenes.
 
 ## Git
 
