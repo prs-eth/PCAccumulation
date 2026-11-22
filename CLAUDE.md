@@ -345,7 +345,7 @@ optimization, so the contribution of each one can be shown exactly.
 - torchsparse is only used for `sparse_quantize` (`libs/dataset.py`, `models/cluster.py`).
 - Not installed: tensorflow / waymo-open-dataset / nuscenes-devkit (only needed by
   `dataset_toolbox/` for raw data preprocessing).
-- Needed for the export utility: `onnx`, `onnxruntime`.
+- Needed for the export utility: `onnx==1.17.0`, `onnxruntime==1.20.1` (in `setup_env.sh`).
 - `venv_pcaccumulation/`, `.deps/`, `checkpoints/` and `*.zip` are git-ignored. Recreate the venv
   with `setup_env.sh` on a new machine, don't copy it: its activate script contains absolute paths.
 
@@ -405,6 +405,32 @@ optimization, so the contribution of each one can be shown exactly.
   with `torch.randperm` (non-deterministic across implementations).
 - Instance clustering + TubeNet is data-dependent and hard to export to TensorRT (hence clustering
   in CUDA, TubeNet optional).
+- **Warp quirk:** `MotionNet.warp_feats` stacks `[bev_feats[T-1], warp(frames 1..T-1)]`. The
+  un-warped slot is frame 4, not the anchor frame 0, because of a leaked loop variable. The checkpoint
+  was trained like that; the `stpn` export reproduces it, and C++ must not "fix" it.
+- **PFN outputs are not post-ReLU** (ResNet block = shortcut + dx): about 50-70 % of the `pfn_a/b/c`
+  outputs are negative. The scatter-max in `pillar_ops.cu` must use a sign-aware float `atomicMax`
+  (int compare for x >= 0, reversed unsigned compare for x < 0), not the plain bitwise trick.
+- `torch.logsumexp` exports as `ReduceLogSumExp`, which TensorRT evaluates without max subtraction;
+  `ego_ot` uses an explicit max-subtracted form instead.
+
+## ONNX export (`export/`)
+
+- `common/reference.py` is shared by `benchmarks/bench_v0.py` and `export/export_onnx.py`: config
+  (`build_config`), checkpoint loading (`load_model`), frame list / `.npz` loading, and the V0
+  preprocessing (`crop_and_remove_ground`, `voxelize_and_collate`, `to_device`, `prepare_batch`).
+  The export script does not import from `benchmarks/`.
+- `bash export/export_models.sh [--frame i]` runs `export/export_onnx.py`: one original forward pass
+  on a real selected frame (hooks capture the inputs and outputs of each part), exports
+  `pfn_a/b/c`, `backbone`, `ego_ot`, `stpn` to `pcacc_cpp/models/*.onnx` (opset 17), then checks
+  wrapper vs original (GPU) and onnxruntime vs wrapper (CPU). The I/O names and shapes are in the
+  module docstring. Exit code 1 if a check fails.
+- Real I/O shapes differ slightly from the table in section 5: `pfn_a` is `[N, 9] -> [N, 32]`,
+  `pfn_b`/`pfn_c` are `[N, 64] -> [N, 32]` (input = concat of the net and its pillar max); `backbone`
+  input is `[5, 32, 288, 288]` and `geo_feats` has 64 channels.
+- Verified results (3 frames): wrapper vs original exact (0) except `ego_ot` (~1e-7 rel, from the
+  logsumexp rewrite); onnxruntime vs original <= 6e-5 rel; fb/mos argmax 100 % identical; poses
+  within 0.003 cm.
 
 ## Code changes made vs. upstream
 
@@ -413,7 +439,8 @@ optimization, so the contribution of each one can be shown exactly.
   → builtins (removed in numpy 1.24+).
 - `models/motionnet.py`: optional `self.timer` stage hooks (`_mark`), no effect on outputs.
 - Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `common/reference.py`, `benchmarks/`
-  (`bench_v0.py`, `summarize.py`, `binio.py`, `viewer.py`, `live_view.py`), and `.gitignore` entries.
+  (`bench_v0.py`, `summarize.py`, `binio.py`, `viewer.py`, `live_view.py`), `export/` (`export_onnx.py`,
+  `export_models.sh`), and `.gitignore` entries.
 - Removed `synthetic_benchmark.py`: the selected real frames replace the synthetic scenes.
 
 ## Git

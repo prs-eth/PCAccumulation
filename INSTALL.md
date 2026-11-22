@@ -66,7 +66,8 @@ python dummy-test.py                    # sanity check without the dataset
        --index-url https://download.pytorch.org/whl/cu121
    venv_pcaccumulation/bin/pip install torch-scatter -f https://data.pyg.org/whl/torch-2.4.0+cu121.html
    venv_pcaccumulation/bin/pip install "numpy<2" scipy scikit-learn pandas numba tqdm pyyaml \
-       tensorboardX filterpy nestargs ipython open3d termcolor pyquaternion matplotlib
+       tensorboardX filterpy nestargs ipython open3d termcolor pyquaternion matplotlib \
+       "onnx==1.17.0" "onnxruntime==1.20.1"
    ```
    `ninja` is required: `chamfer_distance/` is JIT-compiled via `torch.utils.cpp_extension.load`.
 
