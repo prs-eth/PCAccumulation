@@ -356,7 +356,7 @@ optimization, so the contribution of each one can be shown exactly.
   frames, batch 1, `test` mode. Times each stage of the module table (`preprocess`, `voxelize`,
   `h2d`, `pillar_enc`, `backbone`, `ego_motion`, `motion_seg`, `cluster`, plus `tubenet` outside
   the scope) through the optional `MotionNet.timer` hook (no-op when `None`). Writes
-  `benchmarks/results/<variant>_<device>.csv` with columns
+  `benchmarks/results/<variant>_<precision>_<device>.csv` (+ `_meta.json`) with columns
   `variant,device,precision,frame,pass,stage,ms,n_points,n_pillars,n_fg_points`. **The C++
   `benchmark.cpp` must write the same schema and stage names**, so `benchmarks/summarize.py`
   (numpy only) compares any runs: median ms per stage, e2e, FPS, speedup vs V0.
@@ -365,7 +365,15 @@ optimization, so the contribution of each one can be shown exactly.
 - Regression workflow: `--deterministic --passes 1 --save-outputs benchmarks/results/V0_outputs`
   once on the original model, then `--deterministic --passes 1 --compare <dir>` after each change.
   Per-frame `.bin` files (format in `benchmarks/binio.py`: int32 dtype code, ndim, dims, data):
-  `points`, `poses [5,4,4]`, `mos_label [N]`, `inst_label [N]`.
+  `points`, `poses [5,4,4]`, `mos_label [N]`, `inst_label [N]`, `time_indice [N]` (int32 sweep 0..4).
+  The C++ program must write the same per-frame files (dir `<seq>_<frame>`).
+- `python benchmarks/viewer.py`: Open3D window, per frame: segmented point cloud (static/moving,
+  object ID, sweep, disagreement between two runs) + per-stage and e2e timing from the CSVs. Reads
+  only outputs dirs and CSVs, so Python and C++ runs are viewed/compared side by side.
+  `--screenshot x.png` renders one frame and exits.
+- `bench_v0.py --view [--view-pause s]`: live window (`benchmarks/live_view.py`, separate process,
+  reuses `viewer.py` charts/colors) with input sweeps, output segmentation and statistics while the
+  benchmark runs; Pause/Step from the window. Timings under `--view` are indicative only.
 - Always use `--deterministic` for comparisons. Without it, fp32 runs differ slightly from run to
   run, and occasionally a point changes instance cluster.
 - In `train`/`val` mode the forward pass uses ground-truth labels. Always run in **`test` mode**,
@@ -381,7 +389,10 @@ optimization, so the contribution of each one can be shown exactly.
   same (143.5 ms), so per-stage syncs cost almost nothing.
 - Ego-motion translation error vs GT: ~0.03 m. If it's suddenly much larger, something broke.
 - `--deterministic` noise floor: identical labels, pose diff ~0.002 cm.
-- Results: `benchmarks/results/V0_NVIDIA-GeForce-RTX-4060-Laptop-GPU-sm-89.csv` (git-ignored).
+- Results (git-ignored): the raw TF32 CSV of this baseline was overwritten by later runs (the numbers
+  above are what remains). `benchmarks/results/V0_determ/` holds an fp32 `--deterministic` run
+  (3 passes, 2026-11-23, CSV + meta) and `V0_outputs`, the reference outputs saved 2026-11-15
+  (probably without `--deterministic`: ~99.998 % label agreement with a deterministic rerun).
 
 ## Known issues / porting notes
 
@@ -401,8 +412,8 @@ optimization, so the contribution of each one can be shown exactly.
 - `libs/tester.py`, `toolbox/sf_eval_utils.py`, `toolbox/cluster_eval.py`: `np.bool`/`np.float`
   → builtins (removed in numpy 1.24+).
 - `models/motionnet.py`: optional `self.timer` stage hooks (`_mark`), no effect on outputs.
-- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `benchmarks/`
-  (`bench_v0.py`, `summarize.py`, `binio.py`), and `.gitignore` entries.
+- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `common/reference.py`, `benchmarks/`
+  (`bench_v0.py`, `summarize.py`, `binio.py`, `viewer.py`, `live_view.py`), and `.gitignore` entries.
 - Removed `synthetic_benchmark.py`: the selected real frames replace the synthetic scenes.
 
 ## Git

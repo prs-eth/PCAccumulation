@@ -1,7 +1,8 @@
 """V0 speed benchmark: the original PyTorch model on the selected real frames.
 
-Writes benchmarks/results/<variant>_<device>.csv with one row per (frame, pass, stage), in the
-same schema the C++ benchmark will write, plus a <variant>_<device>_meta.json. Compare runs with
+Writes benchmarks/results/<variant>_<precision>_<device>.csv with one row per (frame, pass, stage),
+in the same schema the C++ benchmark will write, plus a matching _meta.json (precision in the name,
+so tf32 and fp32/deterministic runs don't overwrite each other). Compare runs with
 benchmarks/summarize.py.
 
 Stages (same boundaries as the C++ pipeline):
@@ -20,6 +21,7 @@ Stages (same boundaries as the C++ pipeline):
 Examples:
     python benchmarks/bench_v0.py                                    # full benchmark
     python benchmarks/bench_v0.py --frames 20 --passes 1             # quick run
+    python benchmarks/bench_v0.py --frames 20 --passes 1 --view      # quick run with the live window
     python benchmarks/bench_v0.py --deterministic --passes 1 --save-outputs benchmarks/results/V0_outputs
     python benchmarks/bench_v0.py --deterministic --passes 1 --compare benchmarks/results/V0_outputs
 """
@@ -32,11 +34,9 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 import torch
 
-from toolbox.config import get_config
-from libs.dataset import WaymoDataset
-from libs.dataloader import collate_fn
-from libs.voxel_generator import Voxelization
-from models.motionnet import MotionNet
+from common.reference import (build_config, load_model, read_frame_list, load_frame, frame_id,
+                              make_preprocessor, preprocess_mask, crop_and_remove_ground,
+                              voxelize_and_collate, to_device)
 from binio import write_bin, read_bin
 
 E2E_STAGES = ['preprocess', 'voxelize', 'h2d', 'pillar_enc', 'backbone', 'ego_motion', 'motion_seg', 'cluster']
@@ -44,29 +44,7 @@ CSV_FIELDS = ['variant', 'device', 'precision', 'frame', 'pass', 'stage', 'ms', 
 
 
 # ----------------------------------------------------------------------------- setup
-def build_config(path, mode):
-    cfg = get_config(path)
-    cfg['config_file'] = path
-    for a, b in [('voxel_size', 'voxel_size'), ('pc_range', 'range'), ('n_sweeps', 'n_sweeps')]:
-        cfg['pillar_encoder'][a] = cfg['voxel_generator'][b]
-    cfg['misc']['mode'] = mode
-    cfg['instances'] = {'device': torch.device('cuda')}
-    return cfg
-
-
-def make_preprocessor(cfg):
-    """WaymoDataset without the on-disk index: same prep_input() settings, no dataset folder needed."""
-    ds = WaymoDataset.__new__(WaymoDataset)
-    ds.augmentation = False
-    ds.voxeliser = Voxelization(cfg['voxel_generator'])
-    ds.n_frames = cfg['data']['n_frames']
-    ds.crop_xy, ds.crop_z_min, ds.crop_z_max = cfg['voxel_generator']['crop_range']
-    ds.remove_ground = cfg['data']['remove_ground']
-    ds.ground_height = cfg['data']['ground_height'] + cfg['data']['ground_slack']
-    ds.mode = cfg['misc']['mode']
-    return ds
-
-
+# config, model, frames and preprocessing: common/reference.py (shared with export/export_onnx.py)
 def device_name():
     p = torch.cuda.get_device_properties(0)
     return f'{p.name} (sm_{p.major}{p.minor})'
@@ -81,46 +59,6 @@ def run_cmd(cmd):
         return subprocess.run(cmd, capture_output=True, text=True, timeout=10, cwd=REPO).stdout.strip()
     except Exception:
         return ''
-
-
-# ----------------------------------------------------------------------------- preprocessing
-# Same steps as BaseDataset.prep_input (libs/dataset.py) without augmentation, split in two so the
-# crop/ground part and the voxelisation part can be timed separately.
-def crop_and_remove_ground(ds, f):
-    raw_points, time_indice = f['raw_points'], f['time_indice']
-    sd_labels, fb_labels, inst_labels = f['sd_labels'], f['fb_labels'], f['inst_labels']
-    sel_xy = np.logical_and(np.abs(raw_points[:, 0]) < ds.crop_xy, np.abs(raw_points[:, 1]) < ds.crop_xy)
-    sel_z = np.logical_and(raw_points[:, 2] < ds.crop_z_max, raw_points[:, 2] > ds.crop_z_min)
-    sel = np.logical_and(sel_xy, sel_z)
-    if ds.remove_ground:
-        sel = np.logical_and(sel, raw_points[:, 2] > ds.ground_height)
-    return dict(raw_points=raw_points[sel], time_indice=time_indice[sel], sd_labels=sd_labels[sel],
-                fb_labels=fb_labels[sel], inst_labels=inst_labels[sel],
-                ego_motion_gt=f['ego_motion_gt'], inst_motion_gt=f['bbox_tsfm'])
-
-
-def voxelize_and_collate(ds, c):
-    raw_points, time_indice = c['raw_points'], c['time_indice']
-    points = np.concatenate((raw_points, time_indice[:, None]), axis=1).astype(np.float32)
-    voxels = ds.voxeliser(points)
-    data = {
-        'input_points': raw_points,
-        'num_points': np.array([raw_points.shape[0]], dtype=np.int64),
-        'time_indice': time_indice[:, None],
-        'sd_labels': c['sd_labels'][:, None],
-        'inst_labels': c['inst_labels'][:, None],
-        'ego_motion_gt': c['ego_motion_gt'],
-        'inst_motion_gt': c['inst_motion_gt'],
-        'fb_labels': c['fb_labels'][:, None],
-    }
-    data.update(voxels)
-    return collate_fn([data])
-
-
-def to_device(batch):
-    return {k: (v.cuda(non_blocking=True) if torch.is_tensor(v) else
-                [e.cuda() for e in v] if isinstance(v, list) and v and torch.is_tensor(v[0]) else v)
-            for k, v in batch.items()}
 
 
 # ----------------------------------------------------------------------------- timing
@@ -176,6 +114,7 @@ def save_outputs(d, batch, out):
     write_bin(os.path.join(d, 'mos_label.bin'), out['mos_est'].argmax(1).cpu().numpy())
     write_bin(os.path.join(d, 'inst_label.bin'), out['inst_labels_est'].cpu().numpy())
     write_bin(os.path.join(d, 'points.bin'), batch['input_points'].numpy())
+    write_bin(os.path.join(d, 'time_indice.bin'), batch['time_indice'][:, -1].numpy().astype(np.int32))   # sweep 0..T-1
 
 
 def compare_outputs(d, batch, out):
@@ -215,6 +154,11 @@ def main():
     ap.add_argument('--save-outputs', help='write poses / labels per frame (pass 0) into this folder')
     ap.add_argument('--compare', help='compare outputs (pass 0) against a folder from --save-outputs')
     ap.add_argument('--out-dir', default='benchmarks/results')
+    ap.add_argument('--view', action='store_true',
+                    help='live window: input sweeps, output segmentation and statistics per frame '
+                         '(benchmarks/live_view.py); frames are skipped while it draws')
+    ap.add_argument('--view-pause', type=float, default=0.0,
+                    help='with --view: untimed pause in seconds after each frame, to watch every frame')
     args = ap.parse_args()
     os.chdir(REPO)
 
@@ -230,11 +174,9 @@ def main():
 
     cfg = build_config(args.config, 'test')
     ds = make_preprocessor(cfg)
-    model = MotionNet(cfg).cuda().eval()
-    state = torch.load(args.ckpt, map_location='cuda', weights_only=False)
-    model.load_state_dict(state['state_dict'], strict=True)
+    model = load_model(cfg, args.ckpt)
 
-    frames = [l.strip() for l in open(args.frame_list) if l.strip()]
+    frames = read_frame_list(args.frame_list)
     if args.frames:
         frames = frames[:args.frames]
     dev = device_name()
@@ -242,12 +184,7 @@ def main():
           f'deterministic={args.deterministic}')
 
     def load(rel):
-        d = np.load(args.data_root + rel, allow_pickle=True)
-        return {k: d[k] for k in d.files}
-
-    def frame_id(rel):                       # '/waymo/test/000/0005.npz' -> '000/0005'
-        parts = rel.strip('/').split('/')
-        return f'{parts[-2]}/{os.path.splitext(parts[-1])[0]}'
+        return load_frame(args.data_root, rel)
 
     # warm-up: numba JIT, cuDNN autotuning, allocator
     synced, nosync = StageTimer(sync=True), StageTimer(sync=False, sync_at=['cluster'])
@@ -258,11 +195,17 @@ def main():
     print(f'warm-up done ({min(args.warmup, len(frames))} frames)')
 
     os.makedirs(args.out_dir, exist_ok=True)
-    base = os.path.join(args.out_dir, f'{args.variant}_{slug(dev)}')
+    base = os.path.join(args.out_dir, f'{args.variant}_{precision}_{slug(dev)}')
     rows, cmp, trans_err = [], [], []
+    live = None
+    if args.view:
+        from live_view import LiveViewClient, frame_message
+        live = LiveViewClient((args.variant, precision, dev), [frame_id(r) for r in frames], args.view_pause)
     t_bench = time.time()
     for p in range(args.passes):
         for i, rel in enumerate(frames):
+            if live:
+                live.wait_if_paused()        # untimed; Pause / Step from the window
             f = load(rel)                    # disk I/O is not timed
             fid = frame_id(rel)
             batch, out = run_frame(ds, model, f, synced, args.seed)
@@ -282,6 +225,16 @@ def main():
                     save_outputs(os.path.join(args.save_outputs, fid.replace('/', '_')), batch, out)
                 if args.compare:
                     cmp.append(compare_outputs(os.path.join(args.compare, fid.replace('/', '_')), batch, out))
+            if live and live.alive:          # untimed: after both runs of the frame
+                live.send(frame_message(
+                    fid=fid, pass_idx=p, passes=args.passes, frame_idx=i, n_frames=len(frames), stages=st,
+                    sizes=(sizes['n_points'], sizes['n_pillars'], sizes['n_fg_points']),
+                    raw_points=f['raw_points'], raw_time=f['time_indice'],
+                    keep=preprocess_mask(ds, f['raw_points']),
+                    crop=(ds.crop_xy, ds.crop_z_min, ds.crop_z_max), points=batch['input_points'].numpy(),
+                    time_indice=batch['time_indice'][:, -1].numpy(), mos_label=out['mos_est'].argmax(1).cpu().numpy(),
+                    inst_label=out['inst_labels_est'].cpu().numpy(),
+                    poses=out['ego_motion_est'][0].float().cpu().numpy()))
             if (i + 1) % 25 == 0 or i + 1 == len(frames):
                 print(f'  pass {p + 1}/{args.passes}  frame {i + 1}/{len(frames)}  e2e {st["e2e"]:.1f} ms')
 
@@ -302,7 +255,7 @@ def main():
         'power_mode': run_cmd(['nvpmodel', '-q']) or None,
         'torch': torch.__version__, 'cuda': torch.version.cuda, 'cudnn': torch.backends.cudnn.version(),
         'frames': len(frames), 'passes': args.passes, 'warmup': args.warmup,
-        'deterministic': args.deterministic, 'seed': args.seed,
+        'deterministic': args.deterministic, 'seed': args.seed, 'live_view': args.view,
         'benchmark_wall_s': round(time.time() - t_bench, 1),
         'ego_trans_error_vs_gt_m': float(np.mean(trans_err)) if trans_err else None,
     }
@@ -325,7 +278,11 @@ def main():
                   f'{np.mean([c["inst_ari"] for c in ok]):.4f}')
 
     from summarize import summarize
-    summarize([base + '.csv'])
+    table = summarize([base + '.csv'])
+    if live:
+        r = table[0] if table else {}
+        live.finish(f"{len(frames)} frames x {args.passes} passes\ne2e median {r.get('e2e_ms')} ms, "
+                    f"p90 {r.get('e2e_p90_ms')} ms, {r.get('fps')} FPS\nwrote {os.path.basename(base)}.csv")
 
 
 if __name__ == '__main__':
