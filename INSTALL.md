@@ -12,7 +12,7 @@ gcc 15 default + gcc-13, system nvcc 12.4, Python 3.10.
 ```bash
 bash setup_env.sh                       # no sudo needed
 source venv_pcaccumulation/bin/activate
-python dummy-test.py                    # sanity check without the dataset
+python check_env.py                     # checks every dependency + one real frame
 # then follow RUNNING.md
 ```
 
@@ -89,10 +89,11 @@ python dummy-test.py                    # sanity check without the dataset
    `--no-build-isolation` lets the build see the installed torch. `MAX_JOBS` limits parallel nvcc
    processes. Each one can use several GB of RAM, so lower it on machines with less memory.
 
-8. **Verify** with `python dummy-test.py`. It loads the checkpoint onto the GPU and builds a
-   torchsparse tensor. A stronger check is to build `MotionNet` from
-   `configs/waymo/waymo.yaml` and call `load_state_dict(..., strict=True)` with
-   `checkpoints/waymo.pth`. All keys should match.
+8. **Verify** with `python check_env.py`. It checks torch + CUDA, torch_scatter, torchsparse,
+   numba, onnx/onnxruntime, open3d, builds `MotionNet` with `checkpoints/waymo.pth`
+   (`load_state_dict(..., strict=True)`, so every key must match), JIT-builds `chamfer_distance/`
+   and runs one forward pass on the first selected frame if `data/` exists. Exit code 1 on failure;
+   `CHECK_ENV_TRACE=1` prints tracebacks.
 
 ## Next: running it
 

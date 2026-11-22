@@ -16,10 +16,12 @@ source venv_pcaccumulation/bin/activate
 ## 1. Quick check that everything works (a few seconds)
 
 ```bash
-python dummy-test.py
+python check_env.py
 ```
 
-You should see two ✅ lines: the checkpoint loads onto the GPU, and torchsparse works.
+Every line should say `ok` and the last one `environment ok`. The `forward pass` line runs the
+model on the first selected frame (skipped if `data/` is missing); its ego-motion error vs ground
+truth should be a few cm. `onnx` / `open3d` lines are only warnings if missing (export / viewers).
 
 ## 2. Benchmark the speed (V0 baseline)
 

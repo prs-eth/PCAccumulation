@@ -75,5 +75,5 @@ MAX_JOBS="${MAX_JOBS:-4}" pip install --no-build-isolation \
   git+https://github.com/mit-han-lab/torchsparse.git@v1.4.0
 
 # 7. Smoke test
-python dummy-test.py
+python check_env.py --no-frame
 echo ">> Done. Activate with: source $VENV/bin/activate"

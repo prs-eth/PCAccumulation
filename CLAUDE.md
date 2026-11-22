@@ -351,7 +351,9 @@ optimization, so the contribution of each one can be shown exactly.
 
 ## Running the Python reference (details in `RUNNING.md`)
 
-- `python dummy-test.py`: loads `checkpoints/waymo.pth` onto the GPU and builds a torchsparse tensor.
+- `python check_env.py [--no-frame]`: checks torch/CUDA, torch_scatter, torchsparse, numba,
+  onnx/onnxruntime, open3d, the model + checkpoint, chamfer_distance JIT, and one real forward pass
+  (via `common/reference.py`). Exit code 1 on failure. Replaced `dummy-test.py`.
 - `python benchmarks/bench_v0.py`: speed benchmark of the original model on the selected real
   frames, batch 1, `test` mode. Times each stage of the module table (`preprocess`, `voxelize`,
   `h2d`, `pillar_enc`, `backbone`, `ego_motion`, `motion_seg`, `cluster`, plus `tubenet` outside
@@ -438,9 +440,9 @@ optimization, so the contribution of each one can be shown exactly.
 - `libs/tester.py`, `toolbox/sf_eval_utils.py`, `toolbox/cluster_eval.py`: `np.bool`/`np.float`
   → builtins (removed in numpy 1.24+).
 - `models/motionnet.py`: optional `self.timer` stage hooks (`_mark`), no effect on outputs.
-- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `dummy-test.py`, `common/reference.py`, `benchmarks/`
-  (`bench_v0.py`, `summarize.py`, `binio.py`, `viewer.py`, `live_view.py`), `export/` (`export_onnx.py`,
-  `export_models.sh`), and `.gitignore` entries.
+- Added: `setup_env.sh`, `INSTALL.md`, `RUNNING.md`, `check_env.py`, `common/reference.py`, `benchmarks/`
+  (`bench_v0.py`, `summarize.py`, `binio.py`, `viewer.py`, `live_view.py`), `export/` (`export_onnx.py`, `export_models.sh`),
+  and `.gitignore` entries.
 - Removed `synthetic_benchmark.py`: the selected real frames replace the synthetic scenes.
 
 ## Git
